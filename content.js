@@ -1,32 +1,51 @@
 (function() {
-  // Avoid injecting multiple times
   if (document.getElementById('textInjectorSidebar')) return;
 
   let lastFocusedField = null;
   const IGNORED_DIRS = new Set(['.git', 'node_modules', 'server', '.next']);
+  let openedDirectoryName = null; // We'll store a reference to the chosen folder's top-level directory name
+  let fileList = [];
 
   // Create sidebar
   const sidebar = document.createElement('div');
   sidebar.id = 'textInjectorSidebar';
-  
-  // Start hidden
-  sidebar.classList.add('hidden');
-
+  sidebar.classList.add('hidden'); // start hidden
   sidebar.innerHTML = `
     <div id="textInjectorHeader">
       <h3>Text Injector</h3>
     </div>
-    <div id="topSection">
-      <textarea id="injectTextArea" placeholder="Type your text here..."></textarea>
-      <button id="injectBtn">Inject</button>
-    </div>
-    <div id="bottomSection">
-      <div id="folderSelection">
-        <button id="selectFolderBtn">Open Folder</button>
-        <button id="addFilesBtn">Add Selected Files</button>
-        <input type="file" id="folderInput" webkitdirectory multiple />
+    <div id="upperSection">
+      <div class="tabs" id="upperTabs">
+        <button data-tab="promptTab" class="active">Prompt</button>
+        <button data-tab="receiveTab">Receive</button>
       </div>
-      <div id="fileTree"></div>
+      <div class="tab-content active" id="promptTab">
+        <textarea id="injectTextArea" placeholder="Type your text here..."></textarea>
+        <button id="injectBtn">Inject</button>
+      </div>
+      <div class="tab-content" id="receiveTab">
+        <button id="pasteBtn">Paste</button>
+        <textarea id="receiveTextArea" placeholder="Pasted code..."></textarea>
+        <button id="runBtn">Run</button>
+      </div>
+    </div>
+    <div id="lowerSection">
+      <div class="tabs" id="lowerTabs">
+        <button data-tab="treeTab" class="active">Tree</button>
+        <button data-tab="runOutputTab">Run Output</button>
+      </div>
+      <div class="tab-content active" id="treeTab">
+        <div id="folderSelection">
+          <button id="selectFolderBtn">Open Folder</button>
+          <button id="addFilesBtn">Add Selected Files</button>
+          <input type="file" id="folderInput" webkitdirectory multiple />
+        </div>
+        <div id="fileTree"></div>
+      </div>
+      <div class="tab-content" id="runOutputTab">
+        <!-- Run output will appear here in the future -->
+        <p>Run output will appear here...</p>
+      </div>
     </div>
     <div id="textInjectorResizeHandle"></div>
   `;
@@ -41,7 +60,36 @@
   const folderInput = sidebar.querySelector('#folderInput');
   const fileTreeContainer = sidebar.querySelector('#fileTree');
 
-  // Listen for toggle messages
+  const pasteBtn = sidebar.querySelector('#pasteBtn');
+  const receiveTextArea = sidebar.querySelector('#receiveTextArea');
+  const runBtn = sidebar.querySelector('#runBtn');
+
+  // Tab logic for upper and lower sections
+  function setupTabs(tabsContainerId) {
+    const tabsContainer = sidebar.querySelector(`#${tabsContainerId}`);
+    const tabButtons = tabsContainer.querySelectorAll('button');
+    tabButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        tabButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        const tabName = btn.getAttribute('data-tab');
+        const parentSection = tabsContainer.parentNode;
+        const tabContents = parentSection.querySelectorAll('.tab-content');
+        tabContents.forEach(tc => {
+          tc.classList.remove('active');
+          if (tc.id === tabName) {
+            tc.classList.add('active');
+          }
+        });
+      });
+    });
+  }
+
+  setupTabs('upperTabs');
+  setupTabs('lowerTabs');
+
+  // Listen for toggle messages from background
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === "toggleSidebar") {
       sidebar.classList.toggle('hidden');
@@ -67,6 +115,7 @@
     }
   }, true);
 
+  // Inject functionality (Prompt tab)
   injectBtn.addEventListener('click', () => {
     const text = textArea.value;
     if (!text) {
@@ -101,17 +150,59 @@
     }
   });
 
+  // Paste button (Receive tab)
+  pasteBtn.addEventListener('click', async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      receiveTextArea.value = text;
+    } catch (err) {
+      alert('Failed to read clipboard.');
+    }
+  });
+
+  // Run button (Receive tab)
+  runBtn.addEventListener('click', () => {
+    const code = receiveTextArea.value;
+    if (!code) {
+      alert('No code to run.');
+      return;
+    }
+
+    if (!openedDirectoryName) {
+      alert('No directory opened. Please open a folder first.');
+      return;
+    }
+
+    // Here we would write 'code' to script.sh inside the opened directory and run it.
+    // This is not possible directly in a Chrome extension due to security.
+    // Placeholder function call:
+    runLocalScript(code, openedDirectoryName);
+
+    alert('Script "script.sh" would have been written and executed now (simulation).');
+  });
+
+  // File/Folder selection (Tree tab)
   selectFolderBtn.addEventListener('click', () => {
     folderInput.click();
   });
 
-  let fileList = [];
   folderInput.addEventListener('change', () => {
     const rawFiles = Array.from(folderInput.files);
-    fileList = rawFiles.filter(file => {
+    const filteredFiles = rawFiles.filter(file => {
       const parts = file.webkitRelativePath.split('/');
       return !parts.some(part => IGNORED_DIRS.has(part));
     });
+
+    fileList = filteredFiles;
+
+    if (fileList.length > 0) {
+      // Derive openedDirectoryName from the first file's top-level dir
+      const firstPath = fileList[0].webkitRelativePath;
+      const topDir = firstPath.split('/')[0];
+      openedDirectoryName = topDir;
+    } else {
+      openedDirectoryName = null;
+    }
 
     const treeData = buildFileTree(fileList);
     renderFileTree(treeData, fileTreeContainer);
@@ -148,6 +239,7 @@
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.dataset.filepath = value.__file.webkitRelativePath;
+
         li.appendChild(checkbox);
         li.appendChild(document.createTextNode(' ' + key));
       } else {
@@ -184,6 +276,13 @@
       reader.onerror = reject;
       reader.readAsText(file);
     });
+  }
+
+  // Placeholder for running a local script - to be implemented via native messaging or server
+  function runLocalScript(code, directoryName) {
+    // Implement native messaging or a backend service
+    console.log(`Would run script.sh in ${directoryName} with content:`, code);
+    // For now, just log it.
   }
 
   // Resizing logic

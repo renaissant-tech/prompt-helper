@@ -1,14 +1,14 @@
 {
-  "name": "Persistent Text Injector with File Tree",
+  "name": "Complex Text Injector with Tabs",
   "version": "1.0",
   "manifest_version": 3,
-  "description": "A sidebar that can inject text and show a file tree from a selected local folder.",
+  "description": "Sidebar with tabs for prompt/receive and tree/run output.",
   "icons": {
     "128": "logo.png"
   },
   "action": {
     "default_icon": "logo.png",
-    "default_title": "Toggle Text Injector"
+    "default_title": "Toggle Sidebar"
   },
   "background": {
     "service_worker": "background.js"
